@@ -50,19 +50,27 @@ async def verify_api_key(api_key: str = Security(api_key_header)):
 async def get_tweet(data: TweetRequest, api_key: str = Depends(verify_api_key)):
     try:
         logger.info(f"Received request for tweet_id: {data.tweet_id}")
-        logger.info(f"Using bearer token: {bearer_token[:10]}...")  # 只显示前10个字符
 
-        # Get tweet with expanded fields
+        # 使用更多字段来获取完整推文
         tweet = client.get_tweet(
             data.tweet_id,
-            expansions=['attachments.media_keys'],
+            expansions=['attachments.media_keys', 'referenced_tweets.id'],
             media_fields=['url', 'type'],
-            tweet_fields=['created_at']
+            tweet_fields=['created_at', 'text', 'edit_history_tweet_ids', 'entities'],
         )
         
         if tweet.data is None:
             logger.error("Tweet not found")
             raise HTTPException(status_code=404, detail="Tweet not found")
+
+        # 获取完整文本
+        full_text = tweet.data.text
+        
+        # 如果文本中包含 t.co 链接，尝试获取原始 URL
+        if hasattr(tweet.data, 'entities') and 'urls' in tweet.data.entities:
+            for url in tweet.data.entities['urls']:
+                if 't.co' in url['url']:
+                    full_text = full_text.replace(url['url'], url.get('expanded_url', url['url']))
 
         # Handle case where tweet has no media
         media_urls = []
@@ -71,7 +79,7 @@ async def get_tweet(data: TweetRequest, api_key: str = Depends(verify_api_key)):
                          if hasattr(media, 'url') and media.type == 'photo']
 
         response_data = {
-            "text": tweet.data.text,
+            "text": full_text,
             "images": media_urls,
             "created_at": str(tweet.data.created_at)
         }
