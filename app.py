@@ -26,21 +26,32 @@ class TweetResponse(BaseModel):
 @app.post("/get_tweet", response_model=TweetResponse)
 async def get_tweet(data: TweetRequest):
     try:
-        # 获取 tweet 信息
-        tweet = client.get_tweet(data.tweet_id, expansions=['attachments.media_keys'], media_fields=['url'], tweet_fields=['created_at'])
+        # Get tweet with expanded fields
+        tweet = client.get_tweet(
+            data.tweet_id,
+            expansions=['attachments.media_keys'],
+            media_fields=['url', 'type'],  # Added 'type' field
+            tweet_fields=['created_at']
+        )
         
         if tweet.data is None:
             raise HTTPException(status_code=404, detail="Tweet not found")
 
-        tweet_text = tweet.data.text
-        tweet_created_at = tweet.data.created_at
-        media_urls = [media.url for media in tweet.includes['media'] if media.type == 'photo']
+        # Handle case where tweet has no media
+        media_urls = []
+        if hasattr(tweet, 'includes') and 'media' in tweet.includes:
+            media_urls = [media.url for media in tweet.includes['media'] 
+                         if hasattr(media, 'url') and media.type == 'photo']
 
         return {
-            "text": tweet_text,
+            "text": tweet.data.text,
             "images": media_urls,
-            "created_at": tweet_created_at
+            "created_at": tweet.data.created_at
         }
 
+    except tweepy.errors.NotFound:
+        raise HTTPException(status_code=404, detail="Tweet not found")
+    except tweepy.errors.Unauthorized:
+        raise HTTPException(status_code=401, detail="Twitter API authentication failed")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
