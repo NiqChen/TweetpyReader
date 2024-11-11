@@ -45,18 +45,18 @@ async def verify_api_key(api_key: str = Security(api_key_header)):
         )
     return api_key
 
-# API 路由：接受 Tweet ID 并返回文本、图片和发布日期
+# API 路由：接 Tweet ID 并返回文本、图片和发布日期
 @app.post("/get_tweet", response_model=TweetResponse)
 async def get_tweet(data: TweetRequest, api_key: str = Depends(verify_api_key)):
     try:
         logger.info(f"Received request for tweet_id: {data.tweet_id}")
 
-        # 使用更多字段来获取完整推文
+        # 获取单条推文的完整内容
         tweet = client.get_tweet(
             data.tweet_id,
-            expansions=['attachments.media_keys', 'referenced_tweets.id'],
+            expansions=['attachments.media_keys'],
             media_fields=['url', 'type'],
-            tweet_fields=['created_at', 'text', 'edit_history_tweet_ids', 'entities'],
+            tweet_fields=['created_at', 'text', 'entities']
         )
         
         if tweet.data is None:
@@ -66,13 +66,14 @@ async def get_tweet(data: TweetRequest, api_key: str = Depends(verify_api_key)):
         # 获取完整文本
         full_text = tweet.data.text
         
-        # 如果文本中包含 t.co 链接，尝试获取原始 URL
+        # 处理 URLs - 替换 t.co 短链接为原始链接
         if hasattr(tweet.data, 'entities') and 'urls' in tweet.data.entities:
             for url in tweet.data.entities['urls']:
-                if 't.co' in url['url']:
-                    full_text = full_text.replace(url['url'], url.get('expanded_url', url['url']))
+                # 优先使用 unwound_url，如果没有则使用 expanded_url
+                replacement_url = url.get('unwound_url') or url.get('expanded_url') or url['url']
+                full_text = full_text.replace(url['url'], replacement_url)
 
-        # Handle case where tweet has no media
+        # 处理媒体 URLs
         media_urls = []
         if hasattr(tweet, 'includes') and 'media' in tweet.includes:
             media_urls = [media.url for media in tweet.includes['media'] 
@@ -83,6 +84,7 @@ async def get_tweet(data: TweetRequest, api_key: str = Depends(verify_api_key)):
             "images": media_urls,
             "created_at": str(tweet.data.created_at)
         }
+        
         logger.info(f"Successfully processed tweet: {response_data}")
         return response_data
 
