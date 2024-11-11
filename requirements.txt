@@ -1,3 +1,5 @@
-tweepy
 fastapi
 uvicorn
+tweepy
+python-dotenv
+pydantic
