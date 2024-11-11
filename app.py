@@ -4,6 +4,7 @@ from pydantic import BaseModel
 import tweepy
 import os
 from dotenv import load_dotenv
+import logging
 
 # 加载环境变量
 load_dotenv()
@@ -14,6 +15,10 @@ API_KEY = os.getenv("API_KEY")
 
 # 初始化 API key 认证
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=True)
+
+# 设置日志
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # 初始化 FastAPI 应用
 app = FastAPI()
@@ -44,6 +49,9 @@ async def verify_api_key(api_key: str = Security(api_key_header)):
 @app.post("/get_tweet", response_model=TweetResponse)
 async def get_tweet(data: TweetRequest, api_key: str = Depends(verify_api_key)):
     try:
+        logger.info(f"Received request for tweet_id: {data.tweet_id}")
+        logger.info(f"Using bearer token: {bearer_token[:10]}...")  # 只显示前10个字符
+
         # Get tweet with expanded fields
         tweet = client.get_tweet(
             data.tweet_id,
@@ -53,6 +61,7 @@ async def get_tweet(data: TweetRequest, api_key: str = Depends(verify_api_key)):
         )
         
         if tweet.data is None:
+            logger.error("Tweet not found")
             raise HTTPException(status_code=404, detail="Tweet not found")
 
         # Handle case where tweet has no media
@@ -61,15 +70,20 @@ async def get_tweet(data: TweetRequest, api_key: str = Depends(verify_api_key)):
             media_urls = [media.url for media in tweet.includes['media'] 
                          if hasattr(media, 'url') and media.type == 'photo']
 
-        return {
+        response_data = {
             "text": tweet.data.text,
             "images": media_urls,
             "created_at": str(tweet.data.created_at)
         }
+        logger.info(f"Successfully processed tweet: {response_data}")
+        return response_data
 
     except tweepy.errors.NotFound:
+        logger.error("Tweet not found error")
         raise HTTPException(status_code=404, detail="Tweet not found")
     except tweepy.errors.Unauthorized:
+        logger.error("Twitter API authentication failed")
         raise HTTPException(status_code=401, detail="Twitter API authentication failed")
     except Exception as e:
+        logger.error(f"Internal server error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
