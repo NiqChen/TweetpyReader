@@ -51,12 +51,17 @@ async def get_tweet(data: TweetRequest, api_key: str = Depends(verify_api_key)):
     try:
         logger.info(f"Received request for tweet_id: {data.tweet_id}")
 
-        # 获取单条推文的完整内容
+        # 使用更完整的参数设置获取推文
         tweet = client.get_tweet(
             data.tweet_id,
+            tweet_fields=[
+                'created_at',
+                'text',
+                'entities',
+                'note_tweet'  # 关键字段，用于获取长文本
+            ],
             expansions=['attachments.media_keys'],
-            media_fields=['url', 'type'],
-            tweet_fields=['created_at', 'text', 'entities']
+            media_fields=['url', 'type']
         )
         
         if tweet.data is None:
@@ -64,14 +69,10 @@ async def get_tweet(data: TweetRequest, api_key: str = Depends(verify_api_key)):
             raise HTTPException(status_code=404, detail="Tweet not found")
 
         # 获取完整文本
-        full_text = tweet.data.text
-        
-        # 处理 URLs - 替换 t.co 短链接为原始链接
-        if hasattr(tweet.data, 'entities') and 'urls' in tweet.data.entities:
-            for url in tweet.data.entities['urls']:
-                # 优先使用 unwound_url，如果没有则使用 expanded_url
-                replacement_url = url.get('unwound_url') or url.get('expanded_url') or url['url']
-                full_text = full_text.replace(url['url'], replacement_url)
+        if hasattr(tweet.data, 'note_tweet'):
+            full_text = tweet.data.note_tweet['text']  # 长文本在这里
+        else:
+            full_text = tweet.data.text
 
         # 处理媒体 URLs
         media_urls = []
